@@ -1,0 +1,42 @@
+# -----------------------------------------------------------------------------
+#   ROS 2 / colcon build artifacts
+# -----------------------------------------------------------------------------
+build/
+install/
+log/
+
+# In case you have symlinks for latest logs, ignore them:
+latest
+latest_build
+
+# Common colcon meta-files
+**/COLCON_IGNORE
+
+# -----------------------------------------------------------------------------
+#   Python artifacts
+# -----------------------------------------------------------------------------
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+*.pyd
+*.pyo
+*.whl
+*.egg
+*.egg-info/
+*.eggs/
+
+# Setuptools / dist-utils build directories
+dist/
+build/
+*.egg-info/
+
+# -----------------------------------------------------------------------------
+#   Virtual environment directories
+# -----------------------------------------------------------------------------
+.venv/
+venv/
+ENV/
+env/
+
+.vscode/
