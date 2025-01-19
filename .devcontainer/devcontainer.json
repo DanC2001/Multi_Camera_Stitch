@@ -1,0 +1,41 @@
+// .devcontainer/devcontainer.json
+{
+  "name": "ROS2 + OpenCV + X11 + dev user",
+  // Use the Dockerfile in the same folder
+  "dockerFile": "Dockerfile",
+  // Build context is the parent folder
+  "context": "..",
+  // Pass build arguments to the Dockerfile if you want to set them here
+  "build": {
+    "args": {
+      "USERNAME": "dev",
+      "USER_UID": "1000",
+      "USER_GID": "1000"
+    }
+  },
+
+  // We want to run as the 'dev' user in the container
+  "remoteUser": "dev",
+
+  // Provide environment variables and volume mounts for X11
+  "runArgs": [
+    "-v", "/tmp/.X11-unix:/tmp/.X11-unix:rw",
+    "-e", "DISPLAY",
+    // If you want GPU acceleration or other special hardware, adjust here.
+    // For a simpler approach, some people add: "--privileged"
+    // for quick tests. Or with Nvidia GPU: "--gpus all"
+  ],
+
+  // Ensure the integrated terminal uses Bash
+  "settings": {
+    "terminal.integrated.defaultProfile.linux": "/bin/bash"
+  },
+
+  // Dev Container Extensions
+  "extensions": [
+    "ms-vscode.cpptools",
+    "ms-python.python",
+    "ms-azuretools.vscode-docker"
+    // Add more as needed ...
+  ]
+}
