@@ -94,8 +94,9 @@ class MultiCameraNode(Node):
 
             # Warp images
             height, width = self.cam1_handler.undistorted_cv_image.shape[:2]
-            # Estimate size for panorama
-            panorama_width = width * 3  # Adjust as needed
+            
+            # Estimate size for panorama (This can be better, alot of the image gets cut off.)
+            panorama_width = width * 3  
             panorama_height = height
 
             # Initialize panorama canvas
@@ -107,42 +108,24 @@ class MultiCameraNode(Node):
                                     [0, 1, 0],
                                     [0, 0, 1]])
             
+            ## The below method just adds the pics on top of the center image using weights. 
+            ## Blending would be a better option, but for simplicity here we are. 
+            # Start with the reference frame. 
+            panorama[0:height, width:2*width] = self.cam2_handler.undistorted_cv_image
+
             # Warp and place camera_1
             warped1 = cv2.warpPerspective(self.cam1_handler.undistorted_cv_image, translation @ H1, (panorama_width, panorama_height))
             panorama = cv2.addWeighted(panorama, 1, warped1, 1, 0)
-
-            panorama[0:height, width:2*width] = self.cam2_handler.undistorted_cv_image
 
             # Warp and place camera_3
             warped2 = cv2.warpPerspective(self.cam3_handler.undistorted_cv_image, translation @ H3, (panorama_width, panorama_height))
             panorama = cv2.addWeighted(panorama, 1, warped2, 1, 0)
 
-            # Show the panorama
+            # Show the panorama (Probably want to compress/resize the image, it gets pretty big)
             panorama_msg = self.bridge.cv2_to_imgmsg(panorama, encoding='bgr8')
             panorama_msg.header.stamp = self.get_clock().now().to_msg()
-            panorama_msg.header.frame_id = 'simple hconcat pnaorama'
+            panorama_msg.header.frame_id = 'panorama'
             self.panorama_publisher.publish(panorama_msg)
-
-            # # Initialize the Stitcher
-            # stitcher = cv2.Stitcher_create(cv2.Stitcher_PANORAMA)
-
-            # # Perform stitching
-            # status, stitched = stitcher.stitch(images)
-
-            # if status != cv2.Stitcher_OK:
-            #     self.get_logger().error(f"Stitching failed with status {status}")
-            #     return
-
-            # # Convert the stitched image back to ROS Image message
-            # mosaic_msg = self.bridge.cv2_to_imgmsg(stitched, encoding='bgr8')
-            # mosaic_msg.header.stamp = self.get_clock().now().to_msg()
-            # mosaic_msg.header.frame_id = 'mosaic'
-
-            # # Publish the mosaic image
-            # self.mosaic_publisher.publish(mosaic_msg)
-            # self.get_logger().info("Published stitched mosaic image.")
-
-
 
         except CvBridgeError as e:
             self.get_logger().error(f"CvBridge Error: {e}")

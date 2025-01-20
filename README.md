@@ -1,3 +1,5 @@
+![Output on Foxglove](./docs/foxglove_output.png)
+
 # Project Title
 
 -- Full transparancy - Alot of these instructions are chatGPT as i don't have the time to write out fully. 
