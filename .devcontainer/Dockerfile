@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-dev \
     libglu-dev \
     x11-apps \
+    ros-$ROS_DISTRO-foxglove-bridge \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
