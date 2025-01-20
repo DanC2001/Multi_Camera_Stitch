@@ -37,6 +37,7 @@ class CameraHandler:
 
         # Build camera_matrix and dist_coeffs
         self.camera_matrix, self.dist_coeffs = self._build_camera_matrix(self.intrinsics)
+        self.transform_matrix, self.rotation_matrix, self.translation_vector = self._build_transform_matrix(self.extrinsics)
 
         # Latest images
         self.raw_cv_image = None
@@ -63,6 +64,46 @@ class CameraHandler:
         )
         node.get_logger().info(f"[CameraHandler] Subscribed to {topic_name}")
 
+    def _build_rotation_matrix(self, extrinsics):
+        roll, pitch, yaw = extrinsics['roll'], extrinsics['pitch'], extrinsics['yaw']
+        # Convert degrees to radians if necessary
+        # Assuming rotation angles are in radians
+        Rx = np.array([
+            [1, 0, 0],
+            [0, np.cos(roll), -np.sin(roll)],
+            [0, np.sin(roll), np.cos(roll)]
+        ])
+        Ry = np.array([
+            [np.cos(pitch), 0, np.sin(pitch)],
+            [0, 1, 0],
+            [-np.sin(pitch), 0, np.cos(pitch)]
+        ])
+        Rz = np.array([
+            [np.cos(yaw), -np.sin(yaw), 0],
+            [np.sin(yaw), np.cos(yaw), 0],
+            [0, 0, 1]
+        ])
+        R = Rz @ Ry @ Rx
+        return R
+    
+    def _build_translation_vector(self, extrinsics):
+        t_dict = extrinsics['pose']['translation']
+        t = np.array([t_dict['x'],t_dict['y'],t_dict['z']])
+        return t
+
+
+    def _build_transform_matrix(self, extrinsics):
+        R = self._build_rotation_matrix(extrinsics)
+        t = self._build_translation_vector(extrinsics)
+
+        # Create 4x4 transform matrix
+        T = np.vstack([
+            np.hstack([R,t]),
+            np.array([0,0,0,1])
+        ])
+
+        return T, R, t
+    
     def _build_camera_matrix(self, intrinsics):
         """
         Constructs the camera intrinsic matrix and distortion coefficients.
@@ -135,5 +176,11 @@ class CameraHandler:
         Returns the camera intrinsic matrix.
         """
         return self.camera_matrix
+    
+    def get_rotation_matrix(self):
+        """
+        Returns the extrinsic rotation matrix.
+        """
+        return self.rotation_matrix
 
 

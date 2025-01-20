@@ -87,30 +87,57 @@ class MultiCameraNode(Node):
             simple_msg.header.frame_id = 'simple hconcat pnaorama'
             self.simple_publisher.publish(simple_msg)
 
-            # Initialize the Stitcher
-            stitcher = cv2.Stitcher_create(cv2.Stitcher_PANORAMA)
+            # Get the homography matrix (Assime C2 is the center reference)
+            H1 = self._get_homography(self.cam1_handler.camera_matrix, self.cam2_handler.transform_matrix, self.cam1_handler.transform_matrix)
+            H2 = self._get_homography(self.cam2_handler.camera_matrix, self.cam2_handler.transform_matrix, self.cam2_handler.transform_matrix)
+            H3 = self._get_homography(self.cam3_handler.camera_matrix, self.cam2_handler.transform_matrix, self.cam3_handler.transform_matrix)
 
-            # Perform stitching
-            status, stitched = stitcher.stitch(images)
+            # The Homolography matricies above are identity. Something seems wrong. 
 
-            if status != cv2.Stitcher_OK:
-                self.get_logger().error(f"Stitching failed with status {status}")
-                return
 
-            # Convert the stitched image back to ROS Image message
-            mosaic_msg = self.bridge.cv2_to_imgmsg(stitched, encoding='bgr8')
-            mosaic_msg.header.stamp = self.get_clock().now().to_msg()
-            mosaic_msg.header.frame_id = 'mosaic'
+            # # Initialize the Stitcher
+            # stitcher = cv2.Stitcher_create(cv2.Stitcher_PANORAMA)
 
-            # Publish the mosaic image
-            self.mosaic_publisher.publish(mosaic_msg)
-            self.get_logger().info("Published stitched mosaic image.")
+            # # Perform stitching
+            # status, stitched = stitcher.stitch(images)
+
+            # if status != cv2.Stitcher_OK:
+            #     self.get_logger().error(f"Stitching failed with status {status}")
+            #     return
+
+            # # Convert the stitched image back to ROS Image message
+            # mosaic_msg = self.bridge.cv2_to_imgmsg(stitched, encoding='bgr8')
+            # mosaic_msg.header.stamp = self.get_clock().now().to_msg()
+            # mosaic_msg.header.frame_id = 'mosaic'
+
+            # # Publish the mosaic image
+            # self.mosaic_publisher.publish(mosaic_msg)
+            # self.get_logger().info("Published stitched mosaic image.")
+
+
 
         except CvBridgeError as e:
             self.get_logger().error(f"CvBridge Error: {e}")
         except Exception as e:
             self.get_logger().error(f"Unexpected error in timer_callback: {e}")
 
+    def _get_homography(self, K, T_ref, T_other):
+        """
+        Function to compute homography relative to another camera
+        :param K: The camera intrinsic matrix.
+        :param T_ref: The refrence extrinsic matrix
+        :param T_other: The extrinsic matrix of the camera to convert
+        """
+        R_ref = T_ref[:3, :3]
+        t_ref = T_ref[:3, 3]
+        R_other = T_other[:3, :3]
+        t_other = T_other[:3, 3]
+        
+        # Relative rotation and translation
+        R_rel = R_ref @ R_other.T
+        t_rel = R_ref @ (-R_other.T @ t_other + t_ref)
+        H = K @ R_rel @ np.linalg.inv(K)
+        return H
 
 
 
