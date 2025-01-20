@@ -32,7 +32,7 @@
                 },
                 "rotation": {
                     "roll": 0,
-                    "pitch": 0,
+                    "pitch": -1.0472,
                     "yaw": 0
                 }
             },
@@ -134,7 +134,7 @@
                 },
                 "rotation": {
                     "roll": 0,
-                    "pitch": 0,
+                    "pitch": 1.0472,
                     "yaw": 0
                 }
             },

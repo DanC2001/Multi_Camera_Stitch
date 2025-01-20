@@ -52,9 +52,9 @@ class MultiCameraNode(Node):
 
         # Publisher for the final mosaic
         self.bridge = CvBridge()
-        self.mosaic_publisher = self.create_publisher(Image, '/mosaic/image', 10)
+        self.panorama_publisher = self.create_publisher(Image, '/panorama/image', 10)
 
-        self.simple_publisher = self.create_publisher(Image, '/mosaic/simple_hconcat', 10)
+        self.simple_publisher = self.create_publisher(Image, '/panorama/simple_hconcat', 10)
 
         # Create a timer that triggers the callback every 0.5 seconds
         self.timer_period = 0.5  # seconds
@@ -92,8 +92,36 @@ class MultiCameraNode(Node):
             H2 = self._get_homography(self.cam2_handler.camera_matrix, self.cam2_handler.transform_matrix, self.cam2_handler.transform_matrix)
             H3 = self._get_homography(self.cam3_handler.camera_matrix, self.cam2_handler.transform_matrix, self.cam3_handler.transform_matrix)
 
-            # The Homolography matricies above are identity. Something seems wrong. 
+            # Warp images
+            height, width = self.cam1_handler.undistorted_cv_image.shape[:2]
+            # Estimate size for panorama
+            panorama_width = width * 3  # Adjust as needed
+            panorama_height = height
 
+            # Initialize panorama canvas
+            panorama = np.zeros((panorama_height, panorama_width, 3), dtype=np.uint8)
+
+
+            # Define translation to place camera_2 at the center
+            translation = np.array([[1, 0, width],
+                                    [0, 1, 0],
+                                    [0, 0, 1]])
+            
+            # Warp and place camera_1
+            warped1 = cv2.warpPerspective(self.cam1_handler.undistorted_cv_image, translation @ H1, (panorama_width, panorama_height))
+            panorama = cv2.addWeighted(panorama, 1, warped1, 1, 0)
+
+            panorama[0:height, width:2*width] = self.cam2_handler.undistorted_cv_image
+
+            # Warp and place camera_3
+            warped2 = cv2.warpPerspective(self.cam3_handler.undistorted_cv_image, translation @ H3, (panorama_width, panorama_height))
+            panorama = cv2.addWeighted(panorama, 1, warped2, 1, 0)
+
+            # Show the panorama
+            panorama_msg = self.bridge.cv2_to_imgmsg(panorama, encoding='bgr8')
+            panorama_msg.header.stamp = self.get_clock().now().to_msg()
+            panorama_msg.header.frame_id = 'simple hconcat pnaorama'
+            self.panorama_publisher.publish(panorama_msg)
 
             # # Initialize the Stitcher
             # stitcher = cv2.Stitcher_create(cv2.Stitcher_PANORAMA)
