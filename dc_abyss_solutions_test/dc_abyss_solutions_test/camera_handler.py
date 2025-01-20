@@ -4,38 +4,57 @@ import cv2
 import numpy as np
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
+import threading
 
 class CameraHandler:
     """
-    Handles subscription to a single camera topic, and stores:
-      - Latest raw (OpenCV) image
-      - Latest undistorted image
-      - Camera intrinsics & extrinsics
+    Handles subscription to a single camera topic, undistorts images,
+    warps them into a reference frame, and stores the latest warped image.
     """
-    def __init__(self, node, camera_info_dict, topic_name, queue_size=10):
+
+    def __init__(
+        self,
+        node,
+        camera_info_dict,
+        topic_name,
+        queue_size=10,
+        publish_undistorted=True
+    ):
         """
-        :param node: The ROS2 node that will create the subscription.
+        :param node: The ROS2 node that will create the subscription and publishers.
         :param camera_info_dict: A dictionary containing camera intrinsics & extrinsics.
         :param topic_name: The image topic to subscribe to.
         :param queue_size: Subscription queue size (default 10).
+        :param publish_undistorted: If True, publish undistorted images.
         """
         self.node = node
         self.bridge = CvBridge()
 
         # Store camera info
         self.camera_info = camera_info_dict
-        # Parse out intrinsics
-        self.intrinsics = self.camera_info["intrinsics"]  # e.g. { "focal_length":..., "principal_point":..., "distortion":... }
-        self.extrinsics = self.camera_info["extrinsics"]  # e.g. { "pose":... }
-        
-        # Build camera_matrix and dist_coeffs from the dictionary
+        self.intrinsics = self.camera_info["intrinsics"]
+        self.extrinsics = self.camera_info["extrinsics"]
+
+        # Build camera_matrix and dist_coeffs
         self.camera_matrix, self.dist_coeffs = self._build_camera_matrix(self.intrinsics)
 
-        # We'll store the latest raw and undistorted images here
+        # Latest images
         self.raw_cv_image = None
         self.undistorted_cv_image = None
 
-        # Create subscription
+        # Lock for thread-safe access
+        self.lock = threading.Lock()
+
+        # Publisher for undistorted images
+        self.publish_undistorted = publish_undistorted
+        if self.publish_undistorted:
+            undist_topic = f"{topic_name}/undistorted"
+            self.undistorted_pub = node.create_publisher(Image, undist_topic, 10)
+            node.get_logger().info(f"[CameraHandler] Publishing undistorted images to {undist_topic}")
+        else:
+            self.undistorted_pub = None
+
+        # Create the image subscription
         self.sub = node.create_subscription(
             Image,
             topic_name,
@@ -46,29 +65,19 @@ class CameraHandler:
 
     def _build_camera_matrix(self, intrinsics):
         """
-        Builds the 3x3 camera matrix and distortion array from your dictionary.
-        Expected structure similar to:
-        {
-          "image_size": {"x": 1028, "y": 752},
-          "focal_length": 600.0974,
-          "principal_point": { "x": 514.89, "y": 378.92 },
-          "distortion": {
-             "radial": { "k1": ..., "k2": ..., "k3": ... },
-             "tangential": { "p1": ..., "p2": ... }
-          }
-        }
+        Constructs the camera intrinsic matrix and distortion coefficients.
         """
         fx = intrinsics["focal_length"]
-        fy = fx  # or could be different if aspect ratio differs
+        fy = fx  # Assuming square pixels; modify if fy differs
         cx = intrinsics["principal_point"]["x"]
         cy = intrinsics["principal_point"]["y"]
 
-        # Distortion
-        k1 = intrinsics["distortion"]["radial"]["k1"]
-        k2 = intrinsics["distortion"]["radial"]["k2"]
+        # Distortion coefficients
+        k1 = intrinsics["distortion"]["radial"].get("k1", 0.0)
+        k2 = intrinsics["distortion"]["radial"].get("k2", 0.0)
         k3 = intrinsics["distortion"]["radial"].get("k3", 0.0)
-        p1 = intrinsics["distortion"]["tangential"]["p1"]
-        p2 = intrinsics["distortion"]["tangential"]["p2"]
+        p1 = intrinsics["distortion"]["tangential"].get("p1", 0.0)
+        p2 = intrinsics["distortion"]["tangential"].get("p2", 0.0)
 
         camera_matrix = np.array([
             [fx,   0.,  cx],
@@ -81,34 +90,50 @@ class CameraHandler:
 
     def _callback(self, msg: Image):
         """
-        Subscription callback. Convert ROS Image -> CV, store raw & undistorted images.
+        Callback function for incoming image messages.
+        Converts ROS Image to OpenCV, undistorts, and warps if configured.
         """
-        # Convert to OpenCV BGR image
-        cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-        self.raw_cv_image = cv_image
+        try:
+            # Convert ROS Image message to OpenCV image
+            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        except Exception as e:
+            self.node.get_logger().error(f"[CameraHandler] Error converting image: {e}")
+            return
 
-        # Undistort using OpenCV
-        # (If intrinsics or distortion are not valid, you might skip or handle gracefully.)
-        self.undistorted_cv_image = cv2.undistort(
-            cv_image,
-            self.camera_matrix,
-            self.dist_coeffs
-        )
+        with self.lock:
+            self.raw_cv_image = cv_image
+
+            # Undistort the image
+            self.undistorted_cv_image = cv2.undistort(cv_image, self.camera_matrix, self.dist_coeffs)
+
+            # Publish undistorted image if required
+            if self.publish_undistorted and self.undistorted_pub:
+                try:
+                    undist_msg = self.bridge.cv2_to_imgmsg(self.undistorted_cv_image, "bgr8")
+                    undist_msg.header = msg.header
+                    self.undistorted_pub.publish(undist_msg)
+                except Exception as e:
+                    self.node.get_logger().error(f"[CameraHandler] Error publishing undistorted image: {e}")
 
     def get_latest_raw(self):
         """
-        :return: The latest raw OpenCV image, or None if no image received yet.
+        Returns the latest raw OpenCV image.
         """
-        return self.raw_cv_image
+        with self.lock:
+            return self.raw_cv_image
 
     def get_latest_undistorted(self):
         """
-        :return: The latest undistorted OpenCV image, or None if no image received yet.
+        Returns the latest undistorted OpenCV image.
         """
-        return self.undistorted_cv_image
+        with self.lock:
+            return self.undistorted_cv_image
 
-    def get_extrinsics(self):
+
+    def get_camera_matrix(self):
         """
-        :return: The extrinsics dictionary from the constructor for reference
+        Returns the camera intrinsic matrix.
         """
-        return self.extrinsics
+        return self.camera_matrix
+
+

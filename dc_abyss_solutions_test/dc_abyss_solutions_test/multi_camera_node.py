@@ -1,102 +1,119 @@
 #!/usr/bin/env python3
 
+import os
+import json
 import rclpy
-import cv2
-from cv_bridge import CvBridge
 from rclpy.node import Node
+
 from sensor_msgs.msg import Image
+from cv_bridge import CvBridge, CvBridgeError
+import cv2
+import numpy as np
+
+from dc_abyss_solutions_test.camera_handler import CameraHandler  # Ensure this import is correct based on your package structure
+
 
 class MultiCameraNode(Node):
-    """
-    A ROS2 node that subscribes to three camera topics and publishes
-    a single image topic for review.
-    """
     def __init__(self):
         super().__init__('multi_camera_node')
-        
-        # Create subscriptions to the three camera image topics
-        self.camera1_sub = self.create_subscription(
-            Image,
-            '/camera_1/image',
-            self.camera1_callback,
-            10
+
+        # Declare and retrieve the JSON file path from parameters
+        self.declare_parameter('intrinsics_extrinsics_file', '/workspaces/Abyss_Solutions_Test_DanielCook/dc_abyss_solutions_test/intrinsics_extrinsics.json')
+        json_path = self.get_parameter('intrinsics_extrinsics_file').get_parameter_value().string_value
+
+        if not os.path.exists(json_path):
+            self.get_logger().error(f"Calibration JSON file does not exist: {json_path}")
+            rclpy.shutdown()
+            return
+
+        # Load camera calibration data
+        with open(json_path, 'r') as f:
+            camera_data = json.load(f)
+
+        # Initialize CameraHandlers for camera_1, camera_2, camera_3
+        self.cam1_handler = CameraHandler(
+            node=self,
+            camera_info_dict=camera_data["camera_1"],
+            topic_name='/camera_1/image',
+            publish_undistorted=True
+        )
+        self.cam2_handler = CameraHandler(
+            node=self,
+            camera_info_dict=camera_data["camera_2"],
+            topic_name='/camera_2/image',
+            publish_undistorted=True
+        )
+        self.cam3_handler = CameraHandler(
+            node=self,
+            camera_info_dict=camera_data["camera_3"],
+            topic_name='/camera_3/image',
+            publish_undistorted=True
         )
 
-        self.camera2_sub = self.create_subscription(
-            Image,
-            '/camera_2/image',
-            self.camera2_callback,
-            10
-        )
-
-        self.camera3_sub = self.create_subscription(
-            Image,
-            '/camera_3/image',
-            self.camera3_callback,
-            10
-        )
-
-        # Publisher for the processes image
-        self.stitch_pub = self.create_publisher(
-            Image,
-            '/multi_camera_view',  # This is our combined or processed output
-            10
-        )
-
-        # Store bridge for converting image classes to cv2 classes
+        # Publisher for the final mosaic
         self.bridge = CvBridge()
+        self.mosaic_publisher = self.create_publisher(Image, '/mosaic/image', 10)
 
-        # Internal storage for each camera’s last-received frame
-        self.last_img_cam1: Image | None = None
-        self.last_img_cam2: Image | None = None
-        self.last_img_cam3: Image | None = None
+        self.simple_publisher = self.create_publisher(Image, '/mosaic/simple_hconcat', 10)
 
-        self.get_logger().info('MultiCameraNode has been started.')
+        # Create a timer that triggers the callback every 0.5 seconds
+        self.timer_period = 0.5  # seconds
+        self.timer = self.create_timer(self.timer_period, self.timer_callback)
 
-    def camera1_callback(self, msg):
+        self.get_logger().info("MultiCameraNode has been initialized.")
+
+    def timer_callback(self):
         """
-        Callback for Camera 1’s images.
+        This callback retrieves the latest images from each camera handler,
+        stitches them together using OpenCV's Stitcher, and publishes the mosaic.
         """
-        self.last_img_cam1 = msg
-        self.try_publish_review()
+        # Retrieve the latest images from each camera handler
+        img1 = self.cam1_handler.get_latest_undistorted()
+        img2 = self.cam2_handler.get_latest_undistorted()
+        img3 = self.cam3_handler.get_latest_undistorted()
 
-    def camera2_callback(self, msg):
-        """
-        Callback for Camera 2’s images.
-        """
-        self.last_img_cam2 = msg
-        self.try_publish_review()
+        if img1 is None or img2 is None or img3 is None:
+            self.get_logger().warn("One or more images are not available yet.")
+            return
+        
+        try:
+            # Prepare images for stitching
+            images = [img3, img2, img1]
 
-    def camera3_callback(self, msg):
-        """
-        Callback for Camera 3’s images.
-        """
-        self.last_img_cam3 = msg
-        self.try_publish_review()
+            # Publish simple horcat stitch
+            simple_image = cv2.hconcat(images)
+            simple_msg = self.bridge.cv2_to_imgmsg(simple_image, encoding='bgr8')
+            simple_msg.header.stamp = self.get_clock().now().to_msg()
+            simple_msg.header.frame_id = 'simple hconcat pnaorama'
+            self.simple_publisher.publish(simple_msg)
 
-    def try_publish_review(self):
-        """
-        Attempt to publish a combined image only if we have
-        all three camera images available.
-        """
-        if (self.last_img_cam1 is not None and
-            self.last_img_cam2 is not None and
-            self.last_img_cam3 is not None):
-            
-            # -----------------------------------------------------
-            # 1. Convert ROS Image messages to OpenCV images
-            # -----------------------------------------------------
+            # Initialize the Stitcher
+            stitcher = cv2.Stitcher_create(cv2.Stitcher_PANORAMA)
 
-            # -----------------------------------------------------
-            # 1. Convert ROS Image messages to OpenCV images
-            # -----------------------------------------------------
+            # Perform stitching
+            status, stitched = stitcher.stitch(images)
 
-            # For now, just re-publish one of the camera images as a placeholder
-            # to demonstrate the pipeline.
-            result_image_msg = self.last_img_cam1  
+            if status != cv2.Stitcher_OK:
+                self.get_logger().error(f"Stitching failed with status {status}")
+                return
 
-            self.stitch_pub.publish(result_image_msg)
-            self.get_logger().info('Publishing "combined" review image.')
+            # Convert the stitched image back to ROS Image message
+            mosaic_msg = self.bridge.cv2_to_imgmsg(stitched, encoding='bgr8')
+            mosaic_msg.header.stamp = self.get_clock().now().to_msg()
+            mosaic_msg.header.frame_id = 'mosaic'
+
+            # Publish the mosaic image
+            self.mosaic_publisher.publish(mosaic_msg)
+            self.get_logger().info("Published stitched mosaic image.")
+
+        except CvBridgeError as e:
+            self.get_logger().error(f"CvBridge Error: {e}")
+        except Exception as e:
+            self.get_logger().error(f"Unexpected error in timer_callback: {e}")
+
+
+
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -104,10 +121,11 @@ def main(args=None):
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        pass
+        node.get_logger().info("Shutting down MultiCameraNode.")
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()

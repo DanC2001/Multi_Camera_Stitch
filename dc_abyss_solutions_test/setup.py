@@ -4,13 +4,15 @@ package_name = 'dc_abyss_solutions_test'
 
 setup(
     name=package_name,
-    version='0.0.0',
-    packages=find_packages(exclude=['test']),
+    version='0.0.1',
+    packages=find_packages(),
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/launch', ['launch/multi_camera_launch.py']),
+        ('share/' + package_name + '/launch', 
+            ['launch/multi_camera_launch.py',
+             'launch/multi_camera_all.py']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
