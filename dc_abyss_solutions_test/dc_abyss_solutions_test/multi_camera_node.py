@@ -18,7 +18,7 @@ class MultiCameraNode(Node):
         super().__init__('multi_camera_node')
 
         # Declare and retrieve the JSON file path from parameters
-        self.declare_parameter('intrinsics_extrinsics_file', '/workspaces/Abyss_Solutions_Test_DanielCook/dc_abyss_solutions_test/intrinsics_extrinsics.json')
+        self.declare_parameter('intrinsics_extrinsics_file', '/workspaces/Multi_Camera_Stitch/dc_abyss_solutions_test/intrinsics_extrinsics.json')
         json_path = self.get_parameter('intrinsics_extrinsics_file').get_parameter_value().string_value
 
         if not os.path.exists(json_path):

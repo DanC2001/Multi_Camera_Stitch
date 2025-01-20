@@ -65,7 +65,8 @@ class CameraHandler:
         node.get_logger().info(f"[CameraHandler] Subscribed to {topic_name}")
 
     def _build_rotation_matrix(self, extrinsics):
-        roll, pitch, yaw = extrinsics['roll'], extrinsics['pitch'], extrinsics['yaw']
+        rpy = extrinsics['pose']['rotation']
+        roll, pitch, yaw = rpy['roll'], rpy['pitch'], rpy['yaw']
         # Convert degrees to radians if necessary
         # Assuming rotation angles are in radians
         Rx = np.array([
@@ -88,7 +89,7 @@ class CameraHandler:
     
     def _build_translation_vector(self, extrinsics):
         t_dict = extrinsics['pose']['translation']
-        t = np.array([t_dict['x'],t_dict['y'],t_dict['z']])
+        t = np.array([t_dict['x'],t_dict['y'],t_dict['z']]).reshape(3,1)
         return t
 
 
